@@ -1,7 +1,15 @@
 package main
 
-import "fmt"
+import (
+	"course/internal/blackjack"
+	"fmt"
+)
 
 func main() {
-	fmt.Println("Hello, World!")
+	bj := blackjack.NewBlackjack(blackjack.Config{})
+	err := bj.Run()
+
+	if err != nil {
+		fmt.Println("Error when running blackjack game:", err)
+	}
 }
