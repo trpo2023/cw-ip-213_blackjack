@@ -5,14 +5,18 @@
 package blackjack
 
 import (
+	"course/internal/console"
 	"course/internal/deck"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
+	"strconv"
 	"time"
 )
 
 type Player struct {
+	Id     int
 	Cards  []deck.Card
 	Money  int
 	Bet    int
@@ -41,6 +45,8 @@ type Blackjack struct {
 	CurrentTurnIndex int
 	// Current player
 	CurrentPlayer *Player
+	// Max points
+	MaxPoints int
 }
 
 type Config struct {
@@ -66,6 +72,7 @@ func NewBlackjack(cfg Config) (*Blackjack, error) {
 	deckOptions := deck.NewDeckOptions{}
 
 	playerUser := Player{
+		Id:    rand.Int(),
 		Name:  DefaultPlayerNames[rand.Intn(len(DefaultPlayerNames))],
 		Money: cfg.PlayersStartingMoney,
 	}
@@ -75,6 +82,7 @@ func NewBlackjack(cfg Config) (*Blackjack, error) {
 
 	for i := 0; i < cfg.BotsNumber; i++ {
 		players = append(players, Player{
+			Id:    rand.Int(),
 			Name:  DefaultPlayerNames[rand.Intn(len(DefaultPlayerNames))],
 			Money: cfg.PlayersStartingMoney,
 			Bot:   true,
@@ -92,6 +100,7 @@ func NewBlackjack(cfg Config) (*Blackjack, error) {
 	currentPlayer := &(players[playerCurrentTurnIndex])
 
 	dealer := &Player{
+		Id:     rand.Int(),
 		Money:  math.MaxInt,
 		Name:   "Dealer",
 		Dealer: true,
@@ -107,6 +116,7 @@ func NewBlackjack(cfg Config) (*Blackjack, error) {
 		IsStartingCardsDistributed: false,
 		CurrentTurnIndex:           1,
 		CurrentPlayer:              currentPlayer,
+		MaxPoints:                  21,
 	}, nil
 }
 
@@ -120,4 +130,118 @@ func (bj *Blackjack) printWelcome() {
 	fmt.Println(" ___   ___   ___   ___   ___ \n |A  | |K  | |Q  | |J  | |10 |\n |(`)| |(`)| |(`)| |(`)| |(`)|\n |_\\_| |_\\_| |_\\_| |_\\_| |_\\_|")
 	fmt.Println("--- Welcome in the Blackjack Game ---")
 	fmt.Println("-------------------------------------")
+}
+
+func (bj *Blackjack) getCardPoints(card deck.Card) (int, error) {
+	switch card.Value {
+	case deck.Ace:
+		{
+			return AceCostBig, nil
+		}
+
+	case deck.King:
+		{
+			return FaceCost, nil
+		}
+
+	case deck.Queen:
+		{
+			return FaceCost, nil
+		}
+
+	case deck.Jack:
+		{
+			return FaceCost, nil
+		}
+
+	default:
+		{
+			points, err := strconv.Atoi(card.Value)
+
+			if err == nil {
+				return points, nil
+			} else {
+				log.Printf("error when converting the card value to a number: %v", err)
+			}
+
+			log.Printf("\nincorrect card value: %v", card.Value)
+			return 0, nil
+		}
+	}
+}
+
+func (bj *Blackjack) getPlayerCardsPoints(player *Player) (points int) {
+	for i := range player.Cards {
+		playerCard := player.Cards[i]
+		pts, err := bj.getCardPoints(playerCard)
+
+		if err != nil {
+			fmt.Println("error when getting cards points:", err)
+		} else {
+			points += pts
+		}
+	}
+	return
+}
+
+func (bj *Blackjack) printRoundResults() {
+	dealerPoints := bj.getPlayerCardsPoints(bj.Dealer)
+	dealerLost := dealerPoints > 21
+
+	fmt.Println("\n\n\n--- Round results: ---\n")
+
+	fmt.Printf("%s (%d points)\n\n", bj.Dealer.Name, dealerPoints)
+
+	for i := range bj.Players {
+		player := &bj.Players[i]
+		playerPoints := bj.getPlayerCardsPoints(player)
+		playerName := player.Name
+
+		if player.Id == bj.CurrentPlayer.Id {
+			playerName = "You"
+		}
+
+		fmt.Printf("%s (%d points): ", playerName, playerPoints)
+
+		if (playerPoints > dealerPoints || dealerLost) && playerPoints <= bj.MaxPoints {
+			fmt.Printf("You win!\n")
+			player.Money += player.Bet + player.Bet
+		} else if playerPoints == dealerPoints && playerPoints <= bj.MaxPoints {
+			fmt.Printf("Draw\n")
+			player.Money += player.Bet
+		} else {
+			fmt.Printf("Defeat\n")
+		}
+	}
+}
+
+func (bj *Blackjack) checkRound() {
+	allPass := false
+	allPlayersPass := false
+
+	for i := range bj.Players {
+		player := &bj.Players[i]
+		if !player.Pass {
+			break
+		} else if i == len(bj.Players)-1 {
+			allPlayersPass = true
+		}
+	}
+
+	if bj.Dealer.Pass && allPlayersPass {
+		allPass = true
+	}
+	cnsl := console.NewCmd()
+	if allPass {
+		bj.printRoundResults()
+		lines := "--------------------------"
+		fmt.Println("\n\n")
+		fmt.Println(lines)
+		fmt.Println("  New Round  ")
+		fmt.Println(lines)
+		// TODO
+		//bj.resetRound()
+		fmt.Println("Press enter to continue...")
+		cnsl.Input()
+	}
 }
