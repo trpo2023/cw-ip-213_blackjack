@@ -1,16 +1,18 @@
+APP_MAIN_PATH=./cmd/app/main.go
 BIN_NAME=main
+BUILD_DIR=./dist
 
 # Launching the application from main.go
 dev:
-	go run .
+	go run $(APP_MAIN_PATH)
 
 # Starting the application build
 build:
-	go build -o dist/$(BIN_NAME) main.go
+	go build -o $(BUILD_DIR)/$(BIN_NAME) $(APP_MAIN_PATH)
 
 # Launching an application from a binary file
 run:
-	./dist/$(BIN_NAME)
+	$(BUILD_DIR)/$(BIN_NAME)
 
 # Building and launching the application
 prod: build run
