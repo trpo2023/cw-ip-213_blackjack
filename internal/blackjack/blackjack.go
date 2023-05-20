@@ -11,6 +11,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"os"
 	"strconv"
 	"time"
 )
@@ -122,6 +123,7 @@ func NewBlackjack(cfg Config) (*Blackjack, error) {
 
 func (bj *Blackjack) Run() error {
 	bj.printWelcome()
+	bj.gameLoop()
 
 	return nil
 }
@@ -215,6 +217,24 @@ func (bj *Blackjack) printRoundResults() {
 	}
 }
 
+func (bj *Blackjack) resetRound() {
+	for i := range bj.Players {
+		player := &bj.Players[i]
+		player.Cards = []deck.Card{}
+		player.Pass = false
+		player.Bet = 0
+	}
+
+	bj.Dealer.Pass = false
+	bj.Dealer.Cards = []deck.Card{}
+
+	bj.Deck = deck.NewDeck(bj.DeckOptions)
+	bj.NextDeckCardIndex = 0
+
+	bj.IsStartingCardsDistributed = false
+	bj.CurrentTurnIndex = 0
+}
+
 func (bj *Blackjack) checkRound() {
 	allPass := false
 	allPlayersPass := false
@@ -239,9 +259,179 @@ func (bj *Blackjack) checkRound() {
 		fmt.Println(lines)
 		fmt.Println("  New Round  ")
 		fmt.Println(lines)
-		// TODO
-		//bj.resetRound()
+		bj.resetRound()
 		fmt.Println("Press enter to continue...")
 		cnsl.Input()
+	}
+}
+
+func (bj *Blackjack) betMakerBot(bot *Player) {
+	bet := rand.Intn(bot.Money)
+
+	fmt.Printf("\n\nBot %s makes a bet...\n", bot.Name)
+	time.Sleep(time.Second)
+
+	fmt.Printf("An insert of %d coins was made", bet)
+
+	bot.Bet = bet
+	bot.Money -= bet
+}
+
+func (bj *Blackjack) betMakerPlayer(player *Player) {
+	fmt.Printf("\nСделайте Вашу ставку (у вас %d мон.). %s - Выход.", player.Money, ActionExit)
+	userInput := ""
+	cnsl := console.NewCmd()
+
+	for userInput == "" {
+		fmt.Printf("\n>> ")
+		userInput = cnsl.Input()
+
+		if userInput == ActionExit {
+			fmt.Printf("\nWe are waiting for you again!")
+			os.Exit(0)
+		}
+
+		bet, err := strconv.Atoi(userInput)
+
+		if bet > player.Money {
+			fmt.Println("You don't have that many coins")
+			userInput = ""
+		} else if err != nil || bet <= 0 {
+			fmt.Println("Incorrect input")
+			userInput = ""
+		} else {
+			player.Bet = bet
+			player.Money -= bet
+		}
+	}
+}
+
+func (bj *Blackjack) betMakerAll() {
+	for i := range bj.Players {
+		player := &bj.Players[i]
+
+		if player.Bot {
+			bj.betMakerBot(player)
+		} else {
+			bj.betMakerPlayer(player)
+		}
+	}
+
+	fmt.Printf("\n\nСтавки сделаны\n\n")
+}
+
+func (bj *Blackjack) increaseNextDeckCardIndex() {
+	bj.NextDeckCardIndex++
+}
+
+func (bj *Blackjack) giveCardToPlayer(player *Player, cardsNumber int) []deck.Card {
+	playerCardsNumber := len(player.Cards)
+
+	for i := playerCardsNumber; i < cardsNumber+playerCardsNumber; i++ {
+		player.Cards = append(player.Cards, bj.Deck[bj.NextDeckCardIndex])
+		bj.increaseNextDeckCardIndex()
+	}
+
+	return player.Cards[len(player.Cards)-cardsNumber:]
+}
+
+func (bj *Blackjack) giveCardToDealer(cardsNumber int) []deck.Card {
+	dealerCardsNumber := len(bj.Dealer.Cards)
+
+	for i := dealerCardsNumber; i < cardsNumber+dealerCardsNumber; i++ {
+		bj.Dealer.Cards = append(bj.Dealer.Cards, bj.Deck[bj.NextDeckCardIndex])
+		bj.increaseNextDeckCardIndex()
+	}
+
+	return bj.Dealer.Cards[len(bj.Dealer.Cards)-cardsNumber:]
+}
+
+func (bj *Blackjack) giveCardsToAll(cardsNumber int) {
+	for i := range bj.Players {
+		player := &bj.Players[i]
+		bj.giveCardToPlayer(player, cardsNumber)
+	}
+	bj.giveCardToDealer(cardsNumber)
+}
+
+func (bj *Blackjack) printStartingCards() {
+	fmt.Printf("\nРозданы следующие карты:")
+
+	printCard := func(card *deck.Card) {
+		points, err := bj.getCardPoints(*card)
+		if err != nil {
+			fmt.Println("error getting points:", err)
+		} else {
+			fmt.Printf("\n%s %s. Gives %d points", card.Suit, card.Value, points)
+		}
+	}
+
+	printPlayerName := func(playerName string) {
+		fmt.Printf("\n\n%s:", playerName)
+	}
+
+	printTotalPoints := func(totalPoints int) {
+		fmt.Printf("\nTotal: %d", totalPoints)
+	}
+
+	for i := range bj.Players {
+		player := &bj.Players[i]
+		playerName := player.Name
+
+		cardsPoints := 0
+
+		if player.Id == bj.CurrentPlayer.Id {
+			playerName = "Your cards"
+		}
+
+		printPlayerName(playerName)
+
+		for j := range player.Cards {
+			card := &player.Cards[j]
+			points, err := bj.getCardPoints(*card)
+			if err != nil {
+				fmt.Println("error getting points:", err)
+			} else {
+				cardsPoints += points
+			}
+			printCard(card)
+		}
+
+		printTotalPoints(cardsPoints)
+	}
+
+	// --- Дилер
+
+	printPlayerName(bj.Dealer.Name)
+	dealerPoints := 0
+
+	for i := range bj.Dealer.Cards {
+		card := &bj.Dealer.Cards[i]
+		printCard(card)
+		points, err := bj.getCardPoints(*card)
+		if err != nil {
+			fmt.Println("error getting points:", err)
+		} else {
+			dealerPoints += points
+		}
+	}
+
+	printTotalPoints(dealerPoints)
+}
+
+func (bj *Blackjack) gameLoop() {
+	for {
+		bj.checkRound()
+
+		if !bj.IsStartingCardsDistributed {
+			bj.betMakerAll()
+			bj.giveCardsToAll(2)
+			bj.IsStartingCardsDistributed = true
+			bj.printStartingCards()
+		}
+
+		bj.CurrentTurnIndex++
+		// TODO
+		break
 	}
 }
