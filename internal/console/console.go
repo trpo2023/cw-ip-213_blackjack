@@ -10,7 +10,7 @@ import (
 
 type Console struct{}
 
-func NewCmd() *Console {
+func NewConsole() *Console {
 	return &Console{}
 }
 

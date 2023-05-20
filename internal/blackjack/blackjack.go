@@ -206,7 +206,7 @@ func (bj *Blackjack) printRoundResults() {
 		fmt.Printf("%s (%d points): ", playerName, playerPoints)
 
 		if (playerPoints > dealerPoints || dealerLost) && playerPoints <= bj.MaxPoints {
-			fmt.Printf("You win!\n")
+			fmt.Printf("Win!\n")
 			player.Money += player.Bet + player.Bet
 		} else if playerPoints == dealerPoints && playerPoints <= bj.MaxPoints {
 			fmt.Printf("Draw\n")
@@ -251,7 +251,9 @@ func (bj *Blackjack) checkRound() {
 	if bj.Dealer.Pass && allPlayersPass {
 		allPass = true
 	}
-	cnsl := console.NewCmd()
+
+	cnsl := console.NewConsole()
+
 	if allPass {
 		bj.printRoundResults()
 		lines := "--------------------------"
@@ -278,9 +280,9 @@ func (bj *Blackjack) betMakerBot(bot *Player) {
 }
 
 func (bj *Blackjack) betMakerPlayer(player *Player) {
-	fmt.Printf("\nСделайте Вашу ставку (у вас %d мон.). %s - Выход.", player.Money, ActionExit)
+	fmt.Printf("\nMake your bet (you have %d c.). %s - Exit.", player.Money, ActionExit)
 	userInput := ""
-	cnsl := console.NewCmd()
+	cnsl := console.NewConsole()
 
 	for userInput == "" {
 		fmt.Printf("\n>> ")
@@ -317,7 +319,7 @@ func (bj *Blackjack) betMakerAll() {
 		}
 	}
 
-	fmt.Printf("\n\nСтавки сделаны\n\n")
+	fmt.Printf("\n\nBets are made!\n\n")
 }
 
 func (bj *Blackjack) increaseNextDeckCardIndex() {
@@ -355,7 +357,7 @@ func (bj *Blackjack) giveCardsToAll(cardsNumber int) {
 }
 
 func (bj *Blackjack) printStartingCards() {
-	fmt.Printf("\nРозданы следующие карты:")
+	fmt.Printf("\nThe following cards were dealt:")
 
 	printCard := func(card *deck.Card) {
 		points, err := bj.getCardPoints(*card)
@@ -419,7 +421,132 @@ func (bj *Blackjack) printStartingCards() {
 	printTotalPoints(dealerPoints)
 }
 
+func (bj *Blackjack) printNewTurn() {
+	fmt.Printf("\n\nTurn: %d. Points: %d", bj.CurrentTurnIndex, bj.getPlayerCardsPoints(bj.CurrentPlayer))
+}
+
+func (bj *Blackjack) playerPass(player *Player) {
+	player.Pass = true
+}
+
+func (bj *Blackjack) printPlayerCards(player *Player) {
+	totalPoints := 0
+
+	for i := range player.Cards {
+		card := &player.Cards[i]
+		points, err := bj.getCardPoints(*card)
+		if err != nil {
+			fmt.Println("error when getting card points: %w", err)
+		} else {
+			totalPoints += points
+			fmt.Printf("%s %s. Give %d pts\n", card.Suit, card.Value, points)
+		}
+	}
+
+	fmt.Printf("Total: %d\n", totalPoints)
+}
+
+func (bj *Blackjack) onUserInput(userInput string) bool {
+	if bj.CurrentPlayer.Pass {
+		return true
+	}
+
+	if userInput == "" {
+		return false
+	}
+
+	switch userInput {
+	case ActionExit:
+		{
+			fmt.Printf("\nWaiting you again!")
+			os.Exit(0)
+		}
+
+	case ActionTakeCard:
+		{
+			receivedCards := bj.giveCardToPlayer(bj.CurrentPlayer, 1)
+			receivedCard := receivedCards[0]
+			points, err := bj.getCardPoints(receivedCard)
+			if err != nil {
+				fmt.Println("error when getting card points: %w", err)
+			}
+			fmt.Printf("\nYou took the card %s %s. Give %d pts\n", receivedCard.Suit, receivedCard.Value, points)
+			return true
+		}
+
+	case ActionPass:
+		{
+			fmt.Printf("\nYou passed:")
+			bj.playerPass(bj.CurrentPlayer)
+			return true
+		}
+
+	case ActionViewMyCards:
+		{
+			fmt.Println("\nYour cards:")
+			bj.printPlayerCards(bj.CurrentPlayer)
+			return false
+		}
+
+	default:
+		{
+			fmt.Println("Incorrect input")
+			return false
+		}
+	}
+
+	return true
+}
+
+func (bj *Blackjack) botTurn(bot *Player) {
+	botPoints := bj.getPlayerCardsPoints(bot)
+	if botPoints < 15 {
+		fmt.Println("\nTake card...")
+		time.Sleep(time.Second)
+		bj.giveCardToPlayer(bot, 1)
+	} else {
+		fmt.Println("\nPass")
+		bj.playerPass(bot)
+	}
+}
+
+func (bj *Blackjack) stageBots() {
+	// Отсекаем первого игрока, поскольку это пользователь
+	bots := bj.Players[1:]
+
+	for i := range bots {
+		bot := &bots[i]
+
+		if bot.Pass == true {
+			continue
+		}
+
+		fmt.Printf("\nBot`s turn: %s...", bot.Name)
+
+		time.Sleep(time.Second)
+		bj.botTurn(bot)
+	}
+}
+
+func (bj *Blackjack) stageDealer() {
+	dealer := &bj.Dealer
+	dealerPoints := bj.getPlayerCardsPoints(*dealer)
+
+	fmt.Println("\n\nDealer`s turn...")
+	time.Sleep(time.Second)
+
+	if dealerPoints <= DealerPointsTakeCardLimit {
+		fmt.Println("Dealer takes a card")
+		bj.giveCardToDealer(1)
+	} else {
+		fmt.Printf("Dealer not takes a card")
+		bj.playerPass(*dealer)
+	}
+}
+
 func (bj *Blackjack) gameLoop() {
+	cnsl := console.NewConsole()
+
 	for {
 		bj.checkRound()
 
@@ -430,8 +557,19 @@ func (bj *Blackjack) gameLoop() {
 			bj.printStartingCards()
 		}
 
+		bj.printNewTurn()
+
+		userInput := ""
+
+		for !bj.onUserInput(userInput) {
+			fmt.Printf("\nMoves:\n%s - Take card. %s - Pass. %s - Your card. %s - exit.", ActionTakeCard, ActionPass, ActionViewMyCards, ActionExit)
+			fmt.Printf("\n>> ")
+			userInput = cnsl.Input()
+		}
+
+		bj.stageBots()
+		bj.stageDealer()
+
 		bj.CurrentTurnIndex++
-		// TODO
-		break
 	}
 }
