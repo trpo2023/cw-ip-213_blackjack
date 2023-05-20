@@ -1,4 +1,4 @@
-package cmd
+package console
 
 import (
 	"bufio"
@@ -8,15 +8,15 @@ import (
 	"strings"
 )
 
-type Cmd struct{}
+type Console struct{}
 
-func NewCmd() *Cmd {
-	return &Cmd{}
+func NewCmd() *Console {
+	return &Console{}
 }
 
 // Input
 // Read console input.
-func (c *Cmd) Input() string {
+func (c *Console) Input() string {
 	reader := bufio.NewReader(os.Stdin)
 
 	if str, _, err := reader.ReadLine(); err != nil {
