@@ -156,14 +156,14 @@ func (bj *Blackjack) printRoundResults() error {
 		return err
 	}
 
-	fmt.Println("\n\n\n--- Round results: ---\n")
-	fmt.Printf("%s (%d points)", "dealer", dealerPoints)
+	fmt.Println("\n\n\n--- Round results: ---")
+	fmt.Printf("\n%s (%d points)", "dealer", dealerPoints)
 	fmt.Println("\nDealer cards:")
 	err = bj.dealer.printAllCards()
 	if err != nil {
 		return err
 	}
-	fmt.Println("\n\n")
+	fmt.Printf("\n\n\n")
 
 	dealerLost := dealerPoints > 21
 
@@ -257,7 +257,7 @@ func (bj *Blackjack) checkRound() error {
 		bj.console.Input()
 
 		lines := "--------------------------"
-		fmt.Println("\n\n")
+		fmt.Printf("\n\n\n")
 		fmt.Println(lines)
 		fmt.Println("  New Round  ")
 		fmt.Println(lines)
@@ -351,6 +351,10 @@ func (bj *Blackjack) giveCardToDealer(cardsNumber int) (*deck.Card, error) {
 }
 
 func (bj *Blackjack) giveCardsToAll(cardsNumber int) error {
+	if cardsNumber > len(bj.deck) {
+		return fmt.Errorf("cards number is larger than deck length")
+	}
+
 	for _, player := range bj.players {
 		_, err := bj.giveCardToPlayer(player, cardsNumber)
 		if err != nil {
@@ -525,7 +529,7 @@ func (bj *Blackjack) botTurn(bot *Player) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("\n\n")
+		fmt.Printf("\n\n\n")
 	} else {
 		fmt.Println("\nSaved")
 		bj.playerSaved(bot)
