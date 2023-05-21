@@ -17,4 +17,8 @@ run:
 # Building and launching the application
 prod: build run
 
+# Running the application test
+test:
+	go test -v -cover -short ./...
+
 .PHONY: dev build run prod
