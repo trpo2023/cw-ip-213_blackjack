@@ -7,52 +7,44 @@ package blackjack
 import (
 	"course/internal/console"
 	"course/internal/deck"
+	"course/pkg/util"
 	"fmt"
-	"log"
-	"math"
-	"math/rand"
 	"os"
 	"strconv"
 	"time"
 )
 
-type Player struct {
-	Id     int
-	Cards  []deck.Card
-	Money  int
-	Bet    int
-	Name   string
-	Bot    bool
-	Dealer bool
-	Pass   bool
-}
-
 type Blackjack struct {
 	// Deck
-	Deck []deck.Card
+	deck []*deck.Card
 	// Index of the map to be taken next
-	NextDeckCardIndex int
+	nextDeckCardIndex int
 	// Deck Settings
-	DeckOptions deck.NewDeckOptions
+	deckOptions deck.NewDeckOptions
 	// Player
-	Players []Player
+	players []*Player
 	// Number of bots
-	BotsNumber int
+	botsNumber int
 	// Dealer
-	Dealer *Player
+	dealer *Dealer
 	// Have the starting cards been distributed
-	IsStartingCardsDistributed bool
+	isStartingCardsDistributed bool
 	// Index of the current move
-	CurrentTurnIndex int
-	// Current player
-	CurrentPlayer *Player
-	// Max points
-	MaxPoints int
+	currentTurnIndex int
+	// Current user player id
+	currentUser *Player
+	// All the players were saved
+	isAllPlayersSaved bool
+	// All saved
+	isAllSaved bool
+	// Console
+	console *console.Console
 }
 
 type Config struct {
 	PlayersStartingMoney int
 	BotsNumber           int
+	Username             string
 }
 
 func NewBlackjack(cfg Config) (*Blackjack, error) {
@@ -68,62 +60,70 @@ func NewBlackjack(cfg Config) (*Blackjack, error) {
 		return nil, fmt.Errorf("bots number greater than 9: %d", cfg.BotsNumber)
 	}
 
-	rand.Seed(time.Now().UnixNano())
+	// 1 is user
+	playersNumber := 1 + cfg.BotsNumber
+	players := make([]*Player, 0, playersNumber)
 
-	deckOptions := deck.NewDeckOptions{}
-
-	playerUser := Player{
-		Id:    rand.Int(),
-		Name:  DefaultPlayerNames[rand.Intn(len(DefaultPlayerNames))],
-		Money: cfg.PlayersStartingMoney,
+	playerUser, err := newPlayer(cfg.Username, cfg.PlayersStartingMoney, false)
+	if err != nil {
+		return nil, err
 	}
 
-	players := make([]Player, 0)
 	players = append(players, playerUser)
 
 	for i := 0; i < cfg.BotsNumber; i++ {
-		players = append(players, Player{
-			Id:    rand.Int(),
-			Name:  DefaultPlayerNames[rand.Intn(len(DefaultPlayerNames))],
-			Money: cfg.PlayersStartingMoney,
-			Bot:   true,
-		})
+		bot, err := newPlayer(DefaultPlayerNames[util.GetRandomIntn(len(DefaultPlayerNames))], cfg.PlayersStartingMoney, true)
+		if err != nil {
+			return nil, err
+		}
+		players = append(players, bot)
 	}
 
-	playerCurrentTurnIndex := 0
-	// 1 is user
-	playersNumber := cfg.BotsNumber + 1
+	//playerCurrentTurnIndex := 0
+	//
+	//if playersNumber > 1 {
+	//	playerCurrentTurnIndex = util.GetRandomIntn(cfg.BotsNumber)
+	//}
+	//
+	//currentPlayer := players[playerCurrentTurnIndex]
 
-	if playersNumber > 1 {
-		playerCurrentTurnIndex = rand.Intn(cfg.BotsNumber)
+	dealer, err := newDealer()
+	if err != nil {
+		return nil, err
 	}
 
-	currentPlayer := &(players[playerCurrentTurnIndex])
+	deckOptions := deck.NewDeckOptions{}
+	bjDeck, err := deck.NewDeck(deckOptions)
+	if err != nil {
+		return nil, err
+	}
 
-	dealer := &Player{
-		Id:     rand.Int(),
-		Money:  math.MaxInt,
-		Name:   "Dealer",
-		Dealer: true,
+	cnsl, err := console.NewConsole()
+	if err != nil {
+		return nil, err
 	}
 
 	return &Blackjack{
-		Deck:                       deck.NewDeck(deckOptions),
-		NextDeckCardIndex:          0,
-		DeckOptions:                deckOptions,
-		Players:                    players,
-		BotsNumber:                 cfg.BotsNumber,
-		Dealer:                     dealer,
-		IsStartingCardsDistributed: false,
-		CurrentTurnIndex:           1,
-		CurrentPlayer:              currentPlayer,
-		MaxPoints:                  21,
+		deck:                       bjDeck,
+		nextDeckCardIndex:          0,
+		deckOptions:                deckOptions,
+		players:                    players,
+		botsNumber:                 cfg.BotsNumber,
+		dealer:                     dealer,
+		isStartingCardsDistributed: false,
+		currentTurnIndex:           1,
+		currentUser:                playerUser,
+		isAllPlayersSaved:          false,
+		isAllSaved:                 false,
+		console:                    cnsl,
 	}, nil
 }
 
 func (bj *Blackjack) Run() error {
 	bj.printWelcome()
-	bj.gameLoop()
+	if err := bj.gameLoop(); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -134,144 +134,147 @@ func (bj *Blackjack) printWelcome() {
 	fmt.Println("-------------------------------------")
 }
 
-func (bj *Blackjack) getCardPoints(card deck.Card) (int, error) {
-	switch card.Value {
-	case deck.Ace:
-		{
-			return AceCostBig, nil
-		}
+func (bj *Blackjack) getParticipantCardsPoints(player *Player) (int, error) {
+	points := 0
 
-	case deck.King:
-		{
-			return FaceCost, nil
-		}
-
-	case deck.Queen:
-		{
-			return FaceCost, nil
-		}
-
-	case deck.Jack:
-		{
-			return FaceCost, nil
-		}
-
-	default:
-		{
-			points, err := strconv.Atoi(card.Value)
-
-			if err == nil {
-				return points, nil
-			} else {
-				log.Printf("error when converting the card value to a number: %v", err)
-			}
-
-			log.Printf("\nincorrect card value: %v", card.Value)
-			return 0, nil
-		}
-	}
-}
-
-func (bj *Blackjack) getPlayerCardsPoints(player *Player) (points int) {
 	for i := range player.Cards {
 		playerCard := player.Cards[i]
-		pts, err := bj.getCardPoints(playerCard)
+		pts, err := getCardCost(playerCard)
 
 		if err != nil {
-			fmt.Println("error when getting cards points:", err)
+			return -1, err
 		} else {
 			points += pts
 		}
 	}
-	return
+	return points, nil
 }
 
-func (bj *Blackjack) printRoundResults() {
-	dealerPoints := bj.getPlayerCardsPoints(bj.Dealer)
-	dealerLost := dealerPoints > 21
+func (bj *Blackjack) printRoundResults() error {
+	dealerPoints, err := bj.dealer.getPoints()
+	if err != nil {
+		return err
+	}
 
 	fmt.Println("\n\n\n--- Round results: ---\n")
+	fmt.Printf("%s (%d points)", "dealer", dealerPoints)
+	fmt.Println("\nDealer cards:")
+	err = bj.dealer.printAllCards()
+	if err != nil {
+		return err
+	}
+	fmt.Println("\n\n")
 
-	fmt.Printf("%s (%d points)\n\n", bj.Dealer.Name, dealerPoints)
+	dealerLost := dealerPoints > 21
 
-	for i := range bj.Players {
-		player := &bj.Players[i]
-		playerPoints := bj.getPlayerCardsPoints(player)
+	for _, player := range bj.players {
+		playerPoints, err := player.getPoints()
+		if err != nil {
+			return err
+		}
+
 		playerName := player.Name
 
-		if player.Id == bj.CurrentPlayer.Id {
+		if player.Id == bj.currentUser.Id {
 			playerName = "You"
 		}
 
 		fmt.Printf("%s (%d points): ", playerName, playerPoints)
 
-		if (playerPoints > dealerPoints || dealerLost) && playerPoints <= bj.MaxPoints {
+		if (playerPoints > dealerPoints || dealerLost) && playerPoints <= MaxPoints {
 			fmt.Printf("Win!\n")
 			player.Money += player.Bet + player.Bet
-		} else if playerPoints == dealerPoints && playerPoints <= bj.MaxPoints {
+		} else if playerPoints == dealerPoints && playerPoints <= MaxPoints {
 			fmt.Printf("Draw\n")
 			player.Money += player.Bet
 		} else {
 			fmt.Printf("Defeat\n")
 		}
 	}
+
+	return nil
 }
 
-func (bj *Blackjack) resetRound() {
-	for i := range bj.Players {
-		player := &bj.Players[i]
-		player.Cards = []deck.Card{}
-		player.Pass = false
-		player.Bet = 0
+func (bj *Blackjack) resetRound() error {
+	for _, player := range bj.players {
+		player.resetRound()
 	}
 
-	bj.Dealer.Pass = false
-	bj.Dealer.Cards = []deck.Card{}
+	bj.dealer.resetRound()
 
-	bj.Deck = deck.NewDeck(bj.DeckOptions)
-	bj.NextDeckCardIndex = 0
+	bjDeck, err := deck.NewDeck(bj.deckOptions)
+	if err != nil {
+		return err
+	}
+	bj.deck = bjDeck
+	bj.nextDeckCardIndex = 0
 
-	bj.IsStartingCardsDistributed = false
-	bj.CurrentTurnIndex = 0
+	bj.isStartingCardsDistributed = false
+	bj.currentTurnIndex = 0
+
+	for _, player := range bj.players {
+		player.checkIsLost()
+	}
+
+	return nil
 }
 
-func (bj *Blackjack) checkRound() {
-	allPass := false
-	allPlayersPass := false
-
-	for i := range bj.Players {
-		player := &bj.Players[i]
-		if !player.Pass {
-			break
-		} else if i == len(bj.Players)-1 {
-			allPlayersPass = true
+func (bj *Blackjack) checkAllPlayersSaved() {
+	if !bj.isAllPlayersSaved {
+		for i, player := range bj.players {
+			if !player.IsSaved {
+				break
+			} else if i == len(bj.players)-1 {
+				bj.isAllPlayersSaved = true
+			}
 		}
 	}
+}
 
-	if bj.Dealer.Pass && allPlayersPass {
-		allPass = true
+func (bj *Blackjack) checkAllSaved() {
+	if bj.dealer.IsSaved && bj.isAllPlayersSaved {
+		bj.isAllSaved = true
 	}
+}
 
-	cnsl := console.NewConsole()
+func (bj *Blackjack) checkRound() error {
+	bj.checkAllPlayersSaved()
+	bj.checkAllSaved()
 
-	if allPass {
-		bj.printRoundResults()
+	if bj.isAllSaved {
+		err := bj.printRoundResults()
+		if err != nil {
+			return err
+		}
+
+		err = bj.resetRound()
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("\n\nPress enter to continue...")
+
+		bj.console.Input()
+
 		lines := "--------------------------"
 		fmt.Println("\n\n")
 		fmt.Println(lines)
 		fmt.Println("  New Round  ")
 		fmt.Println(lines)
-		bj.resetRound()
-		fmt.Println("Press enter to continue...")
-		cnsl.Input()
 	}
+
+	return nil
 }
 
 func (bj *Blackjack) betMakerBot(bot *Player) {
-	bet := rand.Intn(bot.Money)
+	if bot.IsLost {
+		return
+	}
+
+	bet := util.GetRandomIntn(bot.Money)
 
 	fmt.Printf("\n\nBot %s makes a bet...\n", bot.Name)
-	time.Sleep(time.Second)
+	time.Sleep(Delay)
 
 	fmt.Printf("An insert of %d coins was made", bet)
 
@@ -282,13 +285,12 @@ func (bj *Blackjack) betMakerBot(bot *Player) {
 func (bj *Blackjack) betMakerPlayer(player *Player) {
 	fmt.Printf("\nMake your bet (you have %d c.). %s - Exit.", player.Money, ActionExit)
 	userInput := ""
-	cnsl := console.NewConsole()
 
 	for userInput == "" {
 		fmt.Printf("\n>> ")
-		userInput = cnsl.Input()
+		userInput = bj.console.Input()
 
-		if userInput == ActionExit {
+		if userInput == string(ActionExit) {
 			fmt.Printf("\nWe are waiting for you again!")
 			os.Exit(0)
 		}
@@ -309,9 +311,7 @@ func (bj *Blackjack) betMakerPlayer(player *Player) {
 }
 
 func (bj *Blackjack) betMakerAll() {
-	for i := range bj.Players {
-		player := &bj.Players[i]
-
+	for _, player := range bj.players {
 		if player.Bot {
 			bj.betMakerBot(player)
 		} else {
@@ -323,253 +323,326 @@ func (bj *Blackjack) betMakerAll() {
 }
 
 func (bj *Blackjack) increaseNextDeckCardIndex() {
-	bj.NextDeckCardIndex++
+	bj.nextDeckCardIndex++
 }
 
-func (bj *Blackjack) giveCardToPlayer(player *Player, cardsNumber int) []deck.Card {
+func (bj *Blackjack) giveCardToPlayer(player *Player, cardsNumber int) (*deck.Card, error) {
 	playerCardsNumber := len(player.Cards)
 
 	for i := playerCardsNumber; i < cardsNumber+playerCardsNumber; i++ {
-		player.Cards = append(player.Cards, bj.Deck[bj.NextDeckCardIndex])
+		player.Cards = append(player.Cards, bj.deck[bj.nextDeckCardIndex])
 		bj.increaseNextDeckCardIndex()
 	}
 
-	return player.Cards[len(player.Cards)-cardsNumber:]
+	receivedCard := player.Cards[len(player.Cards)-cardsNumber:]
+	return receivedCard[0], nil
 }
 
-func (bj *Blackjack) giveCardToDealer(cardsNumber int) []deck.Card {
-	dealerCardsNumber := len(bj.Dealer.Cards)
+func (bj *Blackjack) giveCardToDealer(cardsNumber int) (*deck.Card, error) {
+	dealerCardsNumber := len(bj.dealer.Cards)
 
 	for i := dealerCardsNumber; i < cardsNumber+dealerCardsNumber; i++ {
-		bj.Dealer.Cards = append(bj.Dealer.Cards, bj.Deck[bj.NextDeckCardIndex])
+		bj.dealer.Cards = append(bj.dealer.Cards, bj.deck[bj.nextDeckCardIndex])
 		bj.increaseNextDeckCardIndex()
 	}
 
-	return bj.Dealer.Cards[len(bj.Dealer.Cards)-cardsNumber:]
+	receivedCard := bj.dealer.Cards[len(bj.dealer.Cards)-cardsNumber:]
+	return receivedCard[0], nil
 }
 
-func (bj *Blackjack) giveCardsToAll(cardsNumber int) {
-	for i := range bj.Players {
-		player := &bj.Players[i]
-		bj.giveCardToPlayer(player, cardsNumber)
-	}
-	bj.giveCardToDealer(cardsNumber)
-}
-
-func (bj *Blackjack) printStartingCards() {
-	fmt.Printf("\nThe following cards were dealt:")
-
-	printCard := func(card *deck.Card) {
-		points, err := bj.getCardPoints(*card)
+func (bj *Blackjack) giveCardsToAll(cardsNumber int) error {
+	for _, player := range bj.players {
+		_, err := bj.giveCardToPlayer(player, cardsNumber)
 		if err != nil {
-			fmt.Println("error getting points:", err)
-		} else {
-			fmt.Printf("\n%s %s. Gives %d points", card.Suit, card.Value, points)
+			return err
 		}
 	}
 
-	printPlayerName := func(playerName string) {
-		fmt.Printf("\n\n%s:", playerName)
+	_, err := bj.giveCardToDealer(cardsNumber)
+	if err != nil {
+		return err
 	}
+	return nil
+}
 
-	printTotalPoints := func(totalPoints int) {
-		fmt.Printf("\nTotal: %d", totalPoints)
-	}
+func (bj *Blackjack) printStartingCards() error {
+	fmt.Printf("\nThe following cards were dealt:")
 
-	for i := range bj.Players {
-		player := &bj.Players[i]
+	for _, player := range bj.players {
 		playerName := player.Name
 
 		cardsPoints := 0
 
-		if player.Id == bj.CurrentPlayer.Id {
+		if player.Id == bj.currentUser.Id {
 			playerName = "Your cards"
 		}
 
 		printPlayerName(playerName)
 
-		for j := range player.Cards {
-			card := &player.Cards[j]
-			points, err := bj.getCardPoints(*card)
+		for _, card := range player.Cards {
+			cost, err := getCardCost(card)
 			if err != nil {
-				fmt.Println("error getting points:", err)
+				return err
 			} else {
-				cardsPoints += points
+				cardsPoints += cost
 			}
-			printCard(card)
+			err = printCard(card)
+			if err != nil {
+				return err
+			}
 		}
 
 		printTotalPoints(cardsPoints)
+		time.Sleep(Delay)
 	}
 
-	// --- Дилер
+	// --- We print only the first card at the dealer
 
-	printPlayerName(bj.Dealer.Name)
-	dealerPoints := 0
+	printPlayerName("dealer")
+	openedDealerCard := bj.dealer.Cards[0]
+	err := printCard(openedDealerCard)
+	if err != nil {
+		return err
+	}
+	cardCost, err := getCardCost(openedDealerCard)
+	if err != nil {
+		return err
+	}
+	printTotalPoints(cardCost)
 
-	for i := range bj.Dealer.Cards {
-		card := &bj.Dealer.Cards[i]
-		printCard(card)
-		points, err := bj.getCardPoints(*card)
-		if err != nil {
-			fmt.Println("error getting points:", err)
-		} else {
-			dealerPoints += points
-		}
+	time.Sleep(Delay)
+
+	return nil
+}
+
+func (bj *Blackjack) printNewTurn() error {
+	fmt.Println("\n\n-----------------------------")
+	points, err := bj.getParticipantCardsPoints(bj.currentUser)
+	if err != nil {
+		return err
+	}
+	if !bj.currentUser.IsSaved {
+		fmt.Printf("Turn: %d. Points: %d", bj.currentTurnIndex, points)
 	}
 
-	printTotalPoints(dealerPoints)
+	return nil
 }
 
-func (bj *Blackjack) printNewTurn() {
-	fmt.Printf("\n\nTurn: %d. Points: %d", bj.CurrentTurnIndex, bj.getPlayerCardsPoints(bj.CurrentPlayer))
+func (bj *Blackjack) playerSaved(player *Player) {
+	player.IsSaved = true
 }
 
-func (bj *Blackjack) playerPass(player *Player) {
-	player.Pass = true
+func (bj *Blackjack) dealerSaved() {
+	bj.dealer.IsSaved = true
 }
 
-func (bj *Blackjack) printPlayerCards(player *Player) {
+func (bj *Blackjack) printPlayerCards(player *Player) error {
 	totalPoints := 0
 
-	for i := range player.Cards {
-		card := &player.Cards[i]
-		points, err := bj.getCardPoints(*card)
+	for _, card := range player.Cards {
+		cost, err := getCardCost(card)
 		if err != nil {
-			fmt.Println("error when getting card points: %w", err)
+			return err
 		} else {
-			totalPoints += points
-			fmt.Printf("%s %s. Give %d pts\n", card.Suit, card.Value, points)
+			totalPoints += cost
+			fmt.Printf("%s %s. Give %d pts\n", card.Suit, card.Value, cost)
 		}
 	}
 
 	fmt.Printf("Total: %d\n", totalPoints)
+	return nil
 }
 
-func (bj *Blackjack) onUserInput(userInput string) bool {
-	if bj.CurrentPlayer.Pass {
-		return true
+func (bj *Blackjack) onUserInput(userInput string) (bool, error) {
+	if bj.currentUser.IsSaved {
+		return true, nil
 	}
 
 	if userInput == "" {
-		return false
+		return false, nil
 	}
 
 	switch userInput {
-	case ActionExit:
+	case string(ActionExit):
 		{
 			fmt.Printf("\nWaiting you again!")
 			os.Exit(0)
 		}
 
-	case ActionTakeCard:
+	case string(ActionTakeCard):
 		{
-			receivedCards := bj.giveCardToPlayer(bj.CurrentPlayer, 1)
-			receivedCard := receivedCards[0]
-			points, err := bj.getCardPoints(receivedCard)
+			receivedCard, err := bj.giveCardToPlayer(bj.currentUser, 1)
+			if err != nil {
+				return false, err
+			}
+			points, err := getCardCost(receivedCard)
 			if err != nil {
 				fmt.Println("error when getting card points: %w", err)
 			}
 			fmt.Printf("\nYou took the card %s %s. Give %d pts\n", receivedCard.Suit, receivedCard.Value, points)
-			return true
+			return true, nil
 		}
 
-	case ActionPass:
+	case string(ActionPass):
 		{
-			fmt.Printf("\nYou passed:")
-			bj.playerPass(bj.CurrentPlayer)
-			return true
+			fmt.Printf("\nYou saved\n\n")
+			bj.playerSaved(bj.currentUser)
+			return true, nil
 		}
 
-	case ActionViewMyCards:
+	case string(ActionViewMyCards):
 		{
 			fmt.Println("\nYour cards:")
-			bj.printPlayerCards(bj.CurrentPlayer)
-			return false
+			err := bj.printPlayerCards(bj.currentUser)
+			return false, err
 		}
 
 	default:
 		{
 			fmt.Println("Incorrect input")
-			return false
+			return false, nil
 		}
 	}
 
-	return true
+	return true, nil
 }
 
-func (bj *Blackjack) botTurn(bot *Player) {
-	botPoints := bj.getPlayerCardsPoints(bot)
+func (bj *Blackjack) botTurn(bot *Player) error {
+	botPoints, err := bj.getParticipantCardsPoints(bot)
+	if err != nil {
+		return err
+	}
+
 	if botPoints < 15 {
 		fmt.Println("\nTake card...")
-		time.Sleep(time.Second)
-		bj.giveCardToPlayer(bot, 1)
+		time.Sleep(Delay)
+		card, err := bj.giveCardToPlayer(bot, 1)
+		if err != nil {
+			return err
+		}
+
+		err = printCard(card)
+		if err != nil {
+			return err
+		}
+		fmt.Println("\n\n")
 	} else {
-		fmt.Println("\nPass")
-		bj.playerPass(bot)
+		fmt.Println("\nSaved")
+		bj.playerSaved(bot)
 	}
+
+	return nil
 }
 
-func (bj *Blackjack) stageBots() {
+func (bj *Blackjack) stageBots() error {
 	// Отсекаем первого игрока, поскольку это пользователь
-	bots := bj.Players[1:]
+	bots := bj.players[1:]
 
-	for i := range bots {
-		bot := &bots[i]
-
-		if bot.Pass == true {
+	for _, bot := range bots {
+		if bot.IsSaved == true || bot.IsLost {
 			continue
 		}
 
 		fmt.Printf("\nBot`s turn: %s...", bot.Name)
 
-		time.Sleep(time.Second)
-		bj.botTurn(bot)
+		time.Sleep(Delay)
+		err := bj.botTurn(bot)
+		if err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
-func (bj *Blackjack) stageDealer() {
-	dealer := &bj.Dealer
-	dealerPoints := bj.getPlayerCardsPoints(*dealer)
+func (bj *Blackjack) stageDealer() error {
+	if bj.dealer.IsSaved {
+		return fmt.Errorf("dealer is saved")
+	}
+
+	if !bj.isAllPlayersSaved {
+		return nil
+	}
 
 	fmt.Println("\n\nDealer`s turn...")
-	time.Sleep(time.Second)
 
-	if dealerPoints <= DealerPointsTakeCardLimit {
-		fmt.Println("Dealer takes a card")
-		bj.giveCardToDealer(1)
-	} else {
-		fmt.Printf("Dealer not takes a card")
-		bj.playerPass(*dealer)
+	for {
+		time.Sleep(Delay)
+
+		dealerPoints, err := bj.dealer.getPoints()
+		if err != nil {
+			return err
+		}
+
+		if dealerPoints <= DealerPointsTakeCardLimit {
+			fmt.Println("Dealer takes a card")
+			card, err := bj.giveCardToDealer(1)
+			if err != nil {
+				return err
+			}
+
+			err = printCard(card)
+			if err != nil {
+				return err
+			}
+		} else {
+			fmt.Printf("Dealer not takes a card")
+			bj.dealerSaved()
+
+			return nil
+		}
 	}
 }
 
-func (bj *Blackjack) gameLoop() {
-	cnsl := console.NewConsole()
-
+func (bj *Blackjack) gameLoop() error {
 	for {
-		bj.checkRound()
+		err := bj.checkRound()
+		if err != nil {
+			return err
+		}
 
-		if !bj.IsStartingCardsDistributed {
+		if !bj.isStartingCardsDistributed {
 			bj.betMakerAll()
-			bj.giveCardsToAll(2)
-			bj.IsStartingCardsDistributed = true
-			bj.printStartingCards()
+			err := bj.giveCardsToAll(2)
+			if err != nil {
+				return err
+			}
+
+			bj.isStartingCardsDistributed = true
+
+			err = bj.printStartingCards()
+			if err != nil {
+				return err
+			}
 		}
 
-		bj.printNewTurn()
+		err = bj.printNewTurn()
+		if err != nil {
+			return err
+		}
 
-		userInput := ""
+		inputRes := false
 
-		for !bj.onUserInput(userInput) {
-			fmt.Printf("\nMoves:\n%s - Take card. %s - Pass. %s - Your card. %s - exit.", ActionTakeCard, ActionPass, ActionViewMyCards, ActionExit)
+		for !inputRes && !bj.currentUser.IsSaved {
+			fmt.Printf("\nMoves:\n%s - Take card. %s - Save. %s - Your card. %s - exit.", ActionTakeCard, ActionPass, ActionViewMyCards, ActionExit)
 			fmt.Printf("\n>> ")
-			userInput = cnsl.Input()
+			userInput := bj.console.Input()
+			inputRes, err = bj.onUserInput(userInput)
+			if err != nil {
+				return err
+			}
 		}
 
-		bj.stageBots()
-		bj.stageDealer()
+		err = bj.stageBots()
+		if err != nil {
+			return err
+		}
 
-		bj.CurrentTurnIndex++
+		err = bj.stageDealer()
+		if err != nil {
+			return err
+		}
+
+		bj.currentTurnIndex++
 	}
 }

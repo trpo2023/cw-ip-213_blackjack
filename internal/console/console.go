@@ -10,8 +10,8 @@ import (
 
 type Console struct{}
 
-func NewConsole() *Console {
-	return &Console{}
+func NewConsole() (*Console, error) {
+	return &Console{}, nil
 }
 
 // Input

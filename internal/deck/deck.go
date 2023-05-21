@@ -5,38 +5,37 @@
 package deck
 
 import (
-	"math/rand"
+	"course/pkg/util"
 	"strconv"
-	"time"
 )
 
-// Suits
+type CardSuit string
+
+// Card Suits
 const (
-	// Spade
-	Spade = "spade"
-	// Heart
-	Heart = "heart"
-	// Clover
-	Clover = "clover"
-	// Diamond
-	Diamond = "diamond"
+	Spade     CardSuit = "spade"
+	Heart     CardSuit = "heart"
+	Clover    CardSuit = "clover"
+	Diamond   CardSuit = "diamond"
+	TrumpCard CardSuit = "trumpCard"
 )
+
+type CardValue string
 
 // Card Values
 const (
-	Ace    = "ace"
-	King   = "king"
-	Queen  = "queen"
-	Jack   = "jack"
-	Number = "number"
-	Joker  = "joker"
+	Ace    CardValue = "ace"
+	King   CardValue = "king"
+	Queen  CardValue = "queen"
+	Jack   CardValue = "jack"
+	Number CardValue = "number"
+	Joker  CardValue = "joker"
 )
 
 type Card struct {
-	// Suit
-	Suit string
-	// Value (A, K, Q ...)
-	Value string
+	Suit CardSuit
+	// (A, K, Q ...)
+	Value CardValue
 }
 
 type NewDeckOptions struct {
@@ -45,13 +44,13 @@ type NewDeckOptions struct {
 	// Jokers count in deck
 	JokersNumber int
 	// Deck sorting function
-	ShuffleFn func(deck *[]Card)
+	ShuffleFn func(deck []*Card)
 	// Whether to shuffle the deck when creating. If the ShuffleFn function is passed, then shuffling will not work by default
 	NoShuffle bool
 	// Available suits in the deck
-	Suits []string
+	Suits []CardSuit
 	// Order of cards of suits
-	CardValuesOrder []string
+	CardValuesOrder []CardValue
 	// Initial value for cards with a numeric value
 	CardNumberValueStart int
 	// Number of decks
@@ -60,9 +59,7 @@ type NewDeckOptions struct {
 
 // NewDeck
 // Creating a new deck.
-func NewDeck(options NewDeckOptions) []Card {
-	rand.Seed(time.Now().UnixNano())
-
+func NewDeck(options NewDeckOptions) ([]*Card, error) {
 	// --- Initializing the settings for creating a new deck
 	suitCardsCount := options.SuitCardsCount
 	jokersNumber := options.JokersNumber
@@ -78,11 +75,11 @@ func NewDeck(options NewDeckOptions) []Card {
 	}
 
 	if len(suits) == 0 {
-		suits = []string{Spade, Heart, Clover, Diamond}
+		suits = []CardSuit{Spade, Heart, Clover, Diamond}
 	}
 
 	if len(cardValuesOrder) == 0 {
-		cardValuesOrder = []string{Ace, King, Queen, Jack, Number}
+		cardValuesOrder = []CardValue{Ace, King, Queen, Jack, Number}
 	}
 
 	if cardNumberValueStart == 0 {
@@ -95,7 +92,7 @@ func NewDeck(options NewDeckOptions) []Card {
 	// -------------------------------------------
 
 	deckSize := (len(suits)*suitCardsCount + jokersNumber) * decksNumber
-	deck := make([]Card, deckSize)
+	deck := make([]*Card, deckSize)
 
 	// Index of the currently created map
 	curCardIndex := 0
@@ -107,32 +104,34 @@ func NewDeck(options NewDeckOptions) []Card {
 
 			for j := 0; j < suitCardsCount; j++ {
 				suit := suits[i]
-				value := ""
+				var value CardValue
 
 				cardValueOrder := cardValuesOrder[cardValuesOrderIndex]
 
 				if cardValueOrder == Number {
-					value = strconv.Itoa(cardNumberValue)
+					value = CardValue(strconv.Itoa(cardNumberValue))
 					cardNumberValue++
 				} else {
 					value = cardValueOrder
 					cardValuesOrderIndex++
 				}
 
-				deck[curCardIndex] = Card{
-					Suit:  suit,
-					Value: value,
+				card, err := newCard(suit, value)
+				if err != nil {
+					return nil, err
 				}
+				deck[curCardIndex] = card
 
 				curCardIndex++
 			}
 		}
 
 		for i := 0; i < jokersNumber; i++ {
-			deck[curCardIndex] = Card{
-				Suit:  Joker,
-				Value: Joker,
+			card, err := newCard(TrumpCard, Joker)
+			if err != nil {
+				return nil, err
 			}
+			deck[curCardIndex] = card
 			curCardIndex++
 		}
 	}
@@ -142,12 +141,19 @@ func NewDeck(options NewDeckOptions) []Card {
 		i := len(deck)
 		for i > 1 {
 			i = i - 1
-			j := rand.Intn(i)
+			j := util.GetRandomIntn(i)
 			deck[j], deck[i] = deck[i], deck[j]
 		}
 	} else if shuffleFn != nil {
-		shuffleFn(&deck)
+		shuffleFn(deck)
 	}
 
-	return deck
+	return deck, nil
+}
+
+func newCard(suit CardSuit, value CardValue) (*Card, error) {
+	return &Card{
+		Suit:  suit,
+		Value: value,
+	}, nil
 }
