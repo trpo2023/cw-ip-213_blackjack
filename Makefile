@@ -21,4 +21,4 @@ prod: build run
 test:
 	go test -v -cover -short ./...
 
-.PHONY: dev build run prod
+.PHONY: dev build run prod test
