@@ -7,7 +7,7 @@ package blackjack
 import (
 	"course/internal/console"
 	"course/internal/deck"
-	"course/pkg/util"
+	"course/pkg/random"
 	"fmt"
 	"os"
 	"strconv"
@@ -72,7 +72,7 @@ func NewBlackjack(cfg Config) (*Blackjack, error) {
 	players = append(players, playerUser)
 
 	for i := 0; i < cfg.BotsNumber; i++ {
-		bot, err := newPlayer(DefaultPlayerNames[util.GetRandomIntn(len(DefaultPlayerNames))], cfg.PlayersStartingMoney, true)
+		bot, err := newPlayer(DefaultPlayerNames[random.RandInt(0, len(DefaultPlayerNames))], cfg.PlayersStartingMoney, true)
 		if err != nil {
 			return nil, err
 		}
@@ -271,7 +271,7 @@ func (bj *Blackjack) betMakerBot(bot *Player) {
 		return
 	}
 
-	bet := util.GetRandomIntn(bot.Money)
+	bet := random.RandInt(0, bot.Money)
 
 	fmt.Printf("\n\nBot %s makes a bet...\n", bot.Name)
 	time.Sleep(Delay)

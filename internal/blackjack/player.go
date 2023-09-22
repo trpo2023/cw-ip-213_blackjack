@@ -2,7 +2,7 @@ package blackjack
 
 import (
 	"course/internal/deck"
-	"course/pkg/util"
+	"course/pkg/random"
 	"fmt"
 )
 
@@ -27,7 +27,7 @@ func newPlayer(username string, money int, bot bool) (*Player, error) {
 	}
 
 	return &Player{
-		Id:      util.GetRandomString(),
+		Id:      random.RandString(10),
 		Cards:   nil,
 		Money:   money,
 		Bet:     0,

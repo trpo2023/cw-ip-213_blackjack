@@ -5,7 +5,7 @@
 package deck
 
 import (
-	"course/pkg/util"
+	"course/pkg/random"
 	"strconv"
 )
 
@@ -141,7 +141,7 @@ func NewDeck(options NewDeckOptions) ([]*Card, error) {
 		i := len(deck)
 		for i > 1 {
 			i = i - 1
-			j := util.GetRandomIntn(i)
+			j := random.RandInt(0, i)
 			deck[j], deck[i] = deck[i], deck[j]
 		}
 	} else if shuffleFn != nil {

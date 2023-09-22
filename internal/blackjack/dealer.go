@@ -2,7 +2,7 @@ package blackjack
 
 import (
 	"course/internal/deck"
-	"course/pkg/util"
+	"course/pkg/random"
 )
 
 type Dealer struct {
@@ -13,7 +13,7 @@ type Dealer struct {
 
 func newDealer() (*Dealer, error) {
 	return &Dealer{
-		Id:      util.GetRandomString(),
+		Id:      random.RandString(10),
 		Cards:   nil,
 		IsSaved: false,
 	}, nil
