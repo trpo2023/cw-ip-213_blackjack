@@ -8,6 +8,7 @@ import (
 	"course/internal/console"
 	"course/internal/deck"
 	"course/pkg/random"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -47,17 +48,33 @@ type Config struct {
 	Username             string
 }
 
+var (
+	MinBotsNumber = 1
+	MaxBotsNumber = 9
+)
+
+var (
+	ErrInvalidPlayersStartingMoney = errors.New("player starting money is negative or equal to 0")
+	ErrBotsNumberLessThan          = errors.New("bots number less then 0")
+	ErrBotsNumberGreaterThan       = errors.New("bots number greater than 9")
+	ErrEmptyUsername               = errors.New("username is required")
+)
+
 func NewBlackjack(cfg Config) (*Blackjack, error) {
 	if cfg.PlayersStartingMoney <= 0 {
-		return nil, fmt.Errorf("player starting money is negative or equal to 0: %d", cfg.PlayersStartingMoney)
+		return nil, ErrInvalidPlayersStartingMoney
 	}
 
-	if cfg.BotsNumber < 0 {
-		return nil, fmt.Errorf("bots number less then 0: %d", cfg.BotsNumber)
+	if cfg.BotsNumber < MinBotsNumber {
+		return nil, ErrBotsNumberLessThan
 	}
 
-	if cfg.BotsNumber > 9 {
-		return nil, fmt.Errorf("bots number greater than 9: %d", cfg.BotsNumber)
+	if cfg.BotsNumber > MaxBotsNumber {
+		return nil, ErrBotsNumberGreaterThan
+	}
+
+	if cfg.Username == "" {
+		return nil, ErrEmptyUsername
 	}
 
 	// 1 is user
@@ -78,14 +95,6 @@ func NewBlackjack(cfg Config) (*Blackjack, error) {
 		}
 		players = append(players, bot)
 	}
-
-	//playerCurrentTurnIndex := 0
-	//
-	//if playersNumber > 1 {
-	//	playerCurrentTurnIndex = util.GetRandomIntn(cfg.BotsNumber)
-	//}
-	//
-	//currentPlayer := players[playerCurrentTurnIndex]
 
 	dealer, err := newDealer()
 	if err != nil {
@@ -326,7 +335,23 @@ func (bj *Blackjack) increaseNextDeckCardIndex() {
 	bj.nextDeckCardIndex++
 }
 
+func (bj *Blackjack) getActualDeckCardsCount() int {
+	return len(bj.deck) - bj.nextDeckCardIndex
+}
+
+func (bj *Blackjack) isValidCardsNumber(cardsNumber int) bool {
+	return cardsNumber > 0 && cardsNumber <= bj.getActualDeckCardsCount()
+}
+
 func (bj *Blackjack) giveCardToPlayer(player *Player, cardsNumber int) (*deck.Card, error) {
+	if player == nil {
+		return nil, fmt.Errorf("invalid player")
+	}
+
+	if !bj.isValidCardsNumber(cardsNumber) {
+		return nil, fmt.Errorf("invalid cards number")
+	}
+
 	playerCardsNumber := len(player.Cards)
 
 	for i := playerCardsNumber; i < cardsNumber+playerCardsNumber; i++ {
@@ -339,6 +364,10 @@ func (bj *Blackjack) giveCardToPlayer(player *Player, cardsNumber int) (*deck.Ca
 }
 
 func (bj *Blackjack) giveCardToDealer(cardsNumber int) (*deck.Card, error) {
+	if !bj.isValidCardsNumber(cardsNumber) {
+		return nil, fmt.Errorf("invalid cards number")
+	}
+
 	dealerCardsNumber := len(bj.dealer.Cards)
 
 	for i := dealerCardsNumber; i < cardsNumber+dealerCardsNumber; i++ {
@@ -351,7 +380,7 @@ func (bj *Blackjack) giveCardToDealer(cardsNumber int) (*deck.Card, error) {
 }
 
 func (bj *Blackjack) giveCardsToAll(cardsNumber int) error {
-	if cardsNumber > len(bj.deck) {
+	if !bj.isValidCardsNumber(cardsNumber) {
 		return fmt.Errorf("cards number is larger than deck length")
 	}
 
